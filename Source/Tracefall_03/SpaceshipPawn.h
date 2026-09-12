@@ -55,6 +55,27 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight")
 	float ManeuverDamping = 2.0f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
+	float PitchTorque = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
+	float YawTorque = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
+	float RollTorque = 1.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
+	float MaxPitchRate = 30.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
+	float MaxYawRate = 30.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
+	float MaxRollRate = 60.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
+	float RotationDamping = 2.0f;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputMappingContext> SpaceshipMappingContext;
 
@@ -72,11 +93,16 @@ public:
 private:
 	void HandleThrust(const FInputActionValue& Value);
 	void HandleVerticalThrust(const FInputActionValue& Value);
+	void HandleSteering(const FInputActionValue& Value);
+	void HandleRoll(const FInputActionValue& Value);
 	void AddSpaceshipMappingContext();
 
 	float ThrustInput = 0.0f;
 	float VerticalThrustInput = 0.0f;
 	FVector MainEngineVelocity = FVector::ZeroVector;
 	FVector ManeuverVelocity = FVector::ZeroVector;
+	FVector2D SteeringInput = FVector2D::ZeroVector;
+	float RollInput = 0.0f;
+	FVector AngularVelocity = FVector::ZeroVector;
 
 };

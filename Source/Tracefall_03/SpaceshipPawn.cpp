@@ -4,6 +4,7 @@
 #include "SpaceshipPawn.h"
 
 #include "EnhancedInputComponent.h"
+#include "EnhancedActionKeyMapping.h"
 #include "InputMappingContext.h"
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/PlayerController.h"
@@ -79,6 +80,22 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 	MainEngineVelocity *= FMath::Exp(-VelocityDamping * DeltaTime);
 	ManeuverVelocity *= FMath::Exp(-ManeuverDamping * DeltaTime);
 	AddActorWorldOffset((MainEngineVelocity + ManeuverVelocity) * DeltaTime * 100.0f);
+
+	const FVector AngularAcceleration(
+		RollInput * RollTorque,
+		SteeringInput.Y * PitchTorque,
+		SteeringInput.X * YawTorque);
+	AngularVelocity += AngularAcceleration * DeltaTime;
+	AngularVelocity *= FMath::Exp(-RotationDamping * DeltaTime);
+	AngularVelocity.X = FMath::Clamp(AngularVelocity.X, -MaxRollRate, MaxRollRate);
+	AngularVelocity.Y = FMath::Clamp(AngularVelocity.Y, -MaxPitchRate, MaxPitchRate);
+	AngularVelocity.Z = FMath::Clamp(AngularVelocity.Z, -MaxYawRate, MaxYawRate);
+
+	const float RadiansPerDegree = UE_PI / 180.0f;
+	const FQuat RollRotation(FVector::ForwardVector, AngularVelocity.X * RadiansPerDegree * DeltaTime);
+	const FQuat PitchRotation(FVector::RightVector, AngularVelocity.Y * RadiansPerDegree * DeltaTime);
+	const FQuat YawRotation(FVector::UpVector, AngularVelocity.Z * RadiansPerDegree * DeltaTime);
+	AddActorLocalRotation(RollRotation * PitchRotation * YawRotation);
 }
 
 // Called to bind functionality to input
@@ -120,6 +137,41 @@ void ASpaceshipPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 			EnhancedInputComponent->BindAction(VerticalThrustAction, ETriggerEvent::Triggered, this, &ASpaceshipPawn::HandleVerticalThrust);
 			EnhancedInputComponent->BindAction(VerticalThrustAction, ETriggerEvent::Completed, this, &ASpaceshipPawn::HandleVerticalThrust);
 		}
+
+		const UInputAction* SteeringAction = nullptr;
+		const UInputAction* RollAction = nullptr;
+		if (SpaceshipMappingContext)
+		{
+			for (const FEnhancedActionKeyMapping& Mapping : SpaceshipMappingContext->GetMappings())
+			{
+				if (!Mapping.Action)
+				{
+					continue;
+				}
+
+				if (Mapping.Action->GetName() == TEXT("IA_Spaceship_Steering"))
+				{
+					SteeringAction = Mapping.Action.Get();
+				}
+				else if (Mapping.Action->GetName() == TEXT("IA_Spaceship_Roll"))
+				{
+					RollAction = Mapping.Action.Get();
+				}
+			}
+		}
+
+		if (SteeringAction)
+		{
+			EnhancedInputComponent->BindAction(SteeringAction, ETriggerEvent::Triggered, this, &ASpaceshipPawn::HandleSteering);
+			EnhancedInputComponent->BindAction(SteeringAction, ETriggerEvent::Completed, this, &ASpaceshipPawn::HandleSteering);
+			EnhancedInputComponent->BindAction(SteeringAction, ETriggerEvent::Canceled, this, &ASpaceshipPawn::HandleSteering);
+		}
+		if (RollAction)
+		{
+			EnhancedInputComponent->BindAction(RollAction, ETriggerEvent::Triggered, this, &ASpaceshipPawn::HandleRoll);
+			EnhancedInputComponent->BindAction(RollAction, ETriggerEvent::Completed, this, &ASpaceshipPawn::HandleRoll);
+			EnhancedInputComponent->BindAction(RollAction, ETriggerEvent::Canceled, this, &ASpaceshipPawn::HandleRoll);
+		}
 	}
 }
 
@@ -131,6 +183,20 @@ void ASpaceshipPawn::HandleThrust(const FInputActionValue& Value)
 void ASpaceshipPawn::HandleVerticalThrust(const FInputActionValue& Value)
 {
 	VerticalThrustInput = Value.Get<float>();
+}
+
+void ASpaceshipPawn::HandleSteering(const FInputActionValue& Value)
+{
+	SteeringInput = Value.Get<FVector2D>();
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(104, 2.0f, FColor::Yellow, FString::Printf(TEXT("Steering X: %.3f  Y: %.3f"), SteeringInput.X, SteeringInput.Y));
+	}
+}
+
+void ASpaceshipPawn::HandleRoll(const FInputActionValue& Value)
+{
+	RollInput = Value.Get<float>();
 }
 
 void ASpaceshipPawn::AddSpaceshipMappingContext()
