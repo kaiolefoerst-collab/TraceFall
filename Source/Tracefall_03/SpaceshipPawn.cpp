@@ -7,6 +7,7 @@
 #include "EnhancedActionKeyMapping.h"
 #include "InputMappingContext.h"
 #include "EnhancedInputSubsystems.h"
+#include "Engine/Engine.h"
 #include "GameFramework/PlayerController.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -46,10 +47,13 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 
 	const FVector ForwardDirection = GetActorForwardVector();
 	const FVector UpDirection = GetActorUpVector();
+	const FVector RightDirection = GetActorRightVector();
 	const float ForwardSpeed = FVector::DotProduct(MainEngineVelocity, ForwardDirection);
 	const float VerticalSpeed = FVector::DotProduct(ManeuverVelocity, UpDirection);
+	const float LateralSpeed = FVector::DotProduct(LateralVelocity, RightDirection);
 	float ForwardForce = 0.0f;
 	float VerticalForce = 0.0f;
+	float LateralForce = 0.0f;
 
 	if (!FMath::IsNearlyZero(ThrustInput))
 	{
@@ -71,15 +75,27 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 		}
 	}
 
+	if (!FMath::IsNearlyZero(LateralThrustInput))
+	{
+		const bool bAtRightLimit = LateralThrustInput > 0.0f && LateralSpeed >= MaxSpeedLateral;
+		const bool bAtLeftLimit = LateralThrustInput < 0.0f && LateralSpeed <= -MaxSpeedLateral;
+		if (!bAtRightLimit && !bAtLeftLimit)
+		{
+			LateralForce = LateralThrustInput * ThrustLateral;
+		}
+	}
+
 	if (MassSpaceship > 0.0f)
 	{
 		MainEngineVelocity += ForwardDirection * (ForwardForce / MassSpaceship) * DeltaTime;
 		ManeuverVelocity += UpDirection * (VerticalForce / MassSpaceship) * DeltaTime;
+		LateralVelocity += RightDirection * (LateralForce / MassSpaceship) * DeltaTime;
 	}
 
 	MainEngineVelocity *= FMath::Exp(-VelocityDamping * DeltaTime);
 	ManeuverVelocity *= FMath::Exp(-ManeuverDamping * DeltaTime);
-	AddActorWorldOffset((MainEngineVelocity + ManeuverVelocity) * DeltaTime * 100.0f);
+	LateralVelocity *= FMath::Exp(-ManeuverDamping * DeltaTime);
+	AddActorWorldOffset((MainEngineVelocity + ManeuverVelocity + LateralVelocity) * DeltaTime * 100.0f);
 
 	const FVector AngularAcceleration(
 		RollInput * RollTorque,
@@ -92,10 +108,12 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 	AngularVelocity.Z = FMath::Clamp(AngularVelocity.Z, -MaxYawRate, MaxYawRate);
 
 	const float RadiansPerDegree = UE_PI / 180.0f;
-	const FQuat RollRotation(FVector::ForwardVector, AngularVelocity.X * RadiansPerDegree * DeltaTime);
-	const FQuat PitchRotation(FVector::RightVector, AngularVelocity.Y * RadiansPerDegree * DeltaTime);
-	const FQuat YawRotation(FVector::UpVector, AngularVelocity.Z * RadiansPerDegree * DeltaTime);
-	AddActorLocalRotation(RollRotation * PitchRotation * YawRotation);
+	const FQuat LocalRollRotation(FVector::ForwardVector, AngularVelocity.X * RadiansPerDegree * DeltaTime);
+	const FQuat LocalPitchRotation(FVector::RightVector, AngularVelocity.Y * RadiansPerDegree * DeltaTime);
+	const FQuat LocalYawRotation(FVector::UpVector, AngularVelocity.Z * RadiansPerDegree * DeltaTime);
+	FQuat NewRotation = GetActorQuat() * LocalRollRotation * LocalYawRotation * LocalPitchRotation;
+	NewRotation.Normalize();
+	SetActorRotation(NewRotation);
 }
 
 // Called to bind functionality to input
@@ -107,6 +125,7 @@ void ASpaceshipPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 	{
 		const UInputAction* ThrustAction = nullptr;
 		const UInputAction* VerticalThrustAction = nullptr;
+		const UInputAction* LateralThrustAction = nullptr;
 		if (SpaceshipMappingContext)
 		{
 			for (const FEnhancedActionKeyMapping& Mapping : SpaceshipMappingContext->GetMappings())
@@ -124,6 +143,10 @@ void ASpaceshipPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 				{
 					VerticalThrustAction = Mapping.Action.Get();
 				}
+				else if (Mapping.Action->GetName() == TEXT("IA_Spaceship_LateralThrust"))
+				{
+					LateralThrustAction = Mapping.Action.Get();
+				}
 			}
 		}
 
@@ -136,6 +159,11 @@ void ASpaceshipPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 		{
 			EnhancedInputComponent->BindAction(VerticalThrustAction, ETriggerEvent::Triggered, this, &ASpaceshipPawn::HandleVerticalThrust);
 			EnhancedInputComponent->BindAction(VerticalThrustAction, ETriggerEvent::Completed, this, &ASpaceshipPawn::HandleVerticalThrust);
+		}
+		if (LateralThrustAction)
+		{
+			EnhancedInputComponent->BindAction(LateralThrustAction, ETriggerEvent::Triggered, this, &ASpaceshipPawn::HandleLateralThrust);
+			EnhancedInputComponent->BindAction(LateralThrustAction, ETriggerEvent::Completed, this, &ASpaceshipPawn::HandleLateralThrust);
 		}
 
 		const UInputAction* SteeringAction = nullptr;
@@ -183,6 +211,15 @@ void ASpaceshipPawn::HandleThrust(const FInputActionValue& Value)
 void ASpaceshipPawn::HandleVerticalThrust(const FInputActionValue& Value)
 {
 	VerticalThrustInput = Value.Get<float>();
+}
+
+void ASpaceshipPawn::HandleLateralThrust(const FInputActionValue& Value)
+{
+	LateralThrustInput = Value.Get<float>();
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(105, 2.0f, FColor::Yellow, FString::Printf(TEXT("Lateral Input: %.3f"), LateralThrustInput));
+	}
 }
 
 void ASpaceshipPawn::HandleSteering(const FInputActionValue& Value)

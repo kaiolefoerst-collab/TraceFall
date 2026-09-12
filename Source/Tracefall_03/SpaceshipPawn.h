@@ -50,6 +50,12 @@ public:
 	float ThrustVertical = 1500000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight")
+	float ThrustLateral = 1500000.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight")
+	float MaxSpeedLateral = 100.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight")
 	float VelocityDamping = 0.46f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight")
@@ -93,14 +99,17 @@ public:
 private:
 	void HandleThrust(const FInputActionValue& Value);
 	void HandleVerticalThrust(const FInputActionValue& Value);
+	void HandleLateralThrust(const FInputActionValue& Value);
 	void HandleSteering(const FInputActionValue& Value);
 	void HandleRoll(const FInputActionValue& Value);
 	void AddSpaceshipMappingContext();
 
 	float ThrustInput = 0.0f;
 	float VerticalThrustInput = 0.0f;
+	float LateralThrustInput = 0.0f;
 	FVector MainEngineVelocity = FVector::ZeroVector;
 	FVector ManeuverVelocity = FVector::ZeroVector;
+	FVector LateralVelocity = FVector::ZeroVector;
 	FVector2D SteeringInput = FVector2D::ZeroVector;
 	float RollInput = 0.0f;
 	FVector AngularVelocity = FVector::ZeroVector;
