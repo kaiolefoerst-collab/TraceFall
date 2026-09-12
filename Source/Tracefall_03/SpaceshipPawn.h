@@ -62,19 +62,19 @@ public:
 	float ManeuverDamping = 2.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
-	float PitchTorque = 1.0f;
+	float PitchTorque = -30.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
-	float YawTorque = 1.0f;
+	float YawTorque = 30.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
-	float RollTorque = 1.5f;
+	float RollTorque = 50.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
-	float MaxPitchRate = 30.0f;
+	float MaxPitchRate = 500.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
-	float MaxYawRate = 30.0f;
+	float MaxYawRate = 500.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
 	float MaxRollRate = 60.0f;
@@ -113,5 +113,8 @@ private:
 	FVector2D SteeringInput = FVector2D::ZeroVector;
 	float RollInput = 0.0f;
 	FVector AngularVelocity = FVector::ZeroVector;
+	FQuat HorizonRotation = FQuat::Identity;
+	float RollAngle = 0.0f;
+	bool bRotationInitialized = false;
 
 };

@@ -18,8 +18,20 @@ ASpaceshipPawn::ASpaceshipPawn()
 	RootComponent = SceneRoot;
 	SpaceshipMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("SpaceshipMesh"));
 	SpaceshipMesh->SetupAttachment(SceneRoot);
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> SpaceshipMeshFinder(TEXT("/Game/MyGraphics/SM_SpaceShip01.SM_SpaceShip01"));
+	if (SpaceshipMeshFinder.Succeeded())
+	{
+		SpaceshipMesh->SetStaticMesh(SpaceshipMeshFinder.Object);
+	}
+	SpaceshipMesh->SetRelativeLocation(FVector(0.0f, 0.0f, 0.0f));
+	SpaceshipMesh->SetRelativeRotation(FRotator(0.0f, 0.0f, -90.0f));
+	SpaceshipMesh->SetRelativeScale3D(FVector(1.0f, 1.0f, 1.0f));
 	CockpitCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("CockpitCamera"));
 	CockpitCamera->SetupAttachment(SceneRoot);
+	CockpitCamera->SetRelativeLocation(FVector(1210.0f, 0.0f, 230.0f));
+	CockpitCamera->SetRelativeRotation(FRotator(0.0f, 0.0f, 0.0f));
+	CockpitCamera->SetRelativeScale3D(FVector(1.0f, 1.0f, 1.0f));
+	CockpitCamera->FieldOfView = 90.0f;
 	AutoPossessPlayer = EAutoReceiveInput::Player0;
 
 	static ConstructorHelpers::FObjectFinder<UInputMappingContext> MappingContextFinder(TEXT("/Game/Input/IMC_Spaceship.IMC_Spaceship"));
@@ -108,10 +120,34 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 	AngularVelocity.Z = FMath::Clamp(AngularVelocity.Z, -MaxYawRate, MaxYawRate);
 
 	const float RadiansPerDegree = UE_PI / 180.0f;
-	const FQuat LocalRollRotation(FVector::ForwardVector, AngularVelocity.X * RadiansPerDegree * DeltaTime);
-	const FQuat LocalPitchRotation(FVector::RightVector, AngularVelocity.Y * RadiansPerDegree * DeltaTime);
-	const FQuat LocalYawRotation(FVector::UpVector, AngularVelocity.Z * RadiansPerDegree * DeltaTime);
-	FQuat NewRotation = GetActorQuat() * LocalRollRotation * LocalYawRotation * LocalPitchRotation;
+	if (!bRotationInitialized)
+	{
+		const FVector InitialForward = GetActorForwardVector().GetSafeNormal();
+		const FVector InitialRight = FVector::CrossProduct(FVector::UpVector, InitialForward).GetSafeNormal(UE_SMALL_NUMBER, GetActorRightVector());
+		const FVector InitialUp = FVector::CrossProduct(InitialForward, InitialRight).GetSafeNormal();
+		HorizonRotation = FRotationMatrix::MakeFromXZ(InitialForward, InitialUp).ToQuat();
+		RollAngle = FMath::Atan2(
+			FVector::DotProduct(GetActorUpVector(), InitialRight),
+			FVector::DotProduct(GetActorUpVector(), InitialUp));
+		bRotationInitialized = true;
+	}
+
+	RollAngle += AngularVelocity.X * RadiansPerDegree * DeltaTime;
+	const FQuat LocalRollRotation(FVector::ForwardVector, RollAngle);
+	const FQuat CurrentRolledRotation = HorizonRotation * LocalRollRotation;
+	const FVector YawAxis = CurrentRolledRotation.RotateVector(FVector::UpVector);
+	const FQuat YawRotation(YawAxis, AngularVelocity.Z * RadiansPerDegree * DeltaTime);
+	const FQuat YawAppliedRotation = YawRotation * CurrentRolledRotation;
+	const FVector PitchAxis = YawAppliedRotation.RotateVector(FVector::RightVector);
+	const FQuat PitchRotation(PitchAxis, AngularVelocity.Y * RadiansPerDegree * DeltaTime);
+	const FQuat RotatedOrientation = PitchRotation * YawAppliedRotation;
+	const FVector NewForward = RotatedOrientation.RotateVector(FVector::ForwardVector).GetSafeNormal();
+	const FVector PreviousRight = HorizonRotation.RotateVector(FVector::RightVector);
+	const FVector NewRight = FVector::CrossProduct(FVector::UpVector, NewForward).GetSafeNormal(UE_SMALL_NUMBER, PreviousRight);
+	const FVector NewUp = FVector::CrossProduct(NewForward, NewRight).GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+	HorizonRotation = FRotationMatrix::MakeFromXZ(NewForward, NewUp).ToQuat();
+	HorizonRotation.Normalize();
+	FQuat NewRotation = HorizonRotation * LocalRollRotation;
 	NewRotation.Normalize();
 	SetActorRotation(NewRotation);
 }
