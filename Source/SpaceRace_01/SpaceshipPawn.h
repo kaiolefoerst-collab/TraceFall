@@ -15,6 +15,8 @@
 
 class UInputMappingContext;
 class USoundBase;
+class UWidgetComponent;
+class UCockpitDisplayWidget;
 
 UCLASS()
 class SPACERACE_01_API ASpaceshipPawn : public APawn
@@ -112,6 +114,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sound")
 	float CollisionVolumeMultiplier = 10.0f;
 
+	// Current translational velocity relative to the ship's own orientation: X=Forward, Y=Right, Z=Up, in m/s.
+	UFUNCTION(BlueprintPure, Category = "Flight")
+	FVector GetLocalVelocity() const;
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
@@ -130,9 +136,9 @@ private:
 	void HandleSteering(const FInputActionValue& Value);
 	void HandleRoll(const FInputActionValue& Value);
 	void AddSpaceshipMappingContext();
-	void DisplayForwardSpeedDebug(float ForwardSpeedMS) const;
 	void UpdateEngineSound(bool bAnyThrustActive);
 	void PlayCollisionSound();
+	void UpdateCockpitDisplay();
 
 	float ThrustInput = 0.0f;
 	float VerticalThrustInput = 0.0f;
@@ -149,5 +155,6 @@ private:
 	FTransform LastSafeTransform;
 	bool bEngineSoundActive = false;
 	float LastCollisionSoundTime = -1000.0f;
+	UWidgetComponent* CockpitDisplayComponent = nullptr;
 
 };

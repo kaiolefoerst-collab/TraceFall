@@ -13,6 +13,8 @@
 #include "Sound/SoundBase.h"
 #include "Sound/SoundWave.h"
 #include "Kismet/GameplayStatics.h"
+#include "Components/WidgetComponent.h"
+#include "CockpitDisplayWidget.h"
 
 // Sets default values
 ASpaceshipPawn::ASpaceshipPawn()
@@ -148,8 +150,11 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 	if (!bTranslationalThrustActive)
 	{
 		MainEngineVelocity *= FMath::Exp(-VelocityDamping * DeltaTime);
-		ManeuverVelocity *= FMath::Exp(-ManeuverDamping * DeltaTime);
 		LateralVelocity *= FMath::Exp(-ManeuverDamping * DeltaTime);
+	}
+	if (FMath::IsNearlyZero(VerticalThrustInput))
+	{
+		ManeuverVelocity *= FMath::Exp(-ManeuverDamping * DeltaTime);
 	}
 	FHitResult MovementHitResult;
 	AddActorWorldOffset((MainEngineVelocity + ManeuverVelocity + LateralVelocity) * DeltaTime * 100.0f, true, &MovementHitResult);
@@ -219,7 +224,7 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 	NewRotation.Normalize();
 	SetActorRotation(NewRotation);
 
-	DisplayForwardSpeedDebug(ForwardSpeed);
+	UpdateCockpitDisplay();
 }
 
 // Called to bind functionality to input
@@ -322,19 +327,11 @@ void ASpaceshipPawn::HandleVerticalThrust(const FInputActionValue& Value)
 void ASpaceshipPawn::HandleLateralThrust(const FInputActionValue& Value)
 {
 	LateralThrustInput = Value.Get<float>();
-	if (GEngine)
-	{
-		GEngine->AddOnScreenDebugMessage(105, 2.0f, FColor::Yellow, FString::Printf(TEXT("Lateral Input: %.3f"), LateralThrustInput));
-	}
 }
 
 void ASpaceshipPawn::HandleSteering(const FInputActionValue& Value)
 {
 	SteeringInput = Value.Get<FVector2D>();
-	if (GEngine)
-	{
-		GEngine->AddOnScreenDebugMessage(104, 2.0f, FColor::Yellow, FString::Printf(TEXT("Steering X: %.3f  Y: %.3f"), SteeringInput.X, SteeringInput.Y));
-	}
 }
 
 void ASpaceshipPawn::HandleRoll(const FInputActionValue& Value)
@@ -342,11 +339,37 @@ void ASpaceshipPawn::HandleRoll(const FInputActionValue& Value)
 	RollInput = Value.Get<float>();
 }
 
-void ASpaceshipPawn::DisplayForwardSpeedDebug(float ForwardSpeedMS) const
+FVector ASpaceshipPawn::GetLocalVelocity() const
 {
-	if (GEngine && IsPlayerControlled())
+	const FVector TotalWorldVelocity = MainEngineVelocity + ManeuverVelocity + LateralVelocity;
+	return GetActorTransform().InverseTransformVectorNoScale(TotalWorldVelocity);
+}
+
+void ASpaceshipPawn::UpdateCockpitDisplay()
+{
+	if (!CockpitDisplayComponent)
 	{
-		GEngine->AddOnScreenDebugMessage(1, 0.0f, FColor::Green, FString::Printf(TEXT("Speed: %.1f m/s"), ForwardSpeedMS), true, FVector2D(1.5f, 1.5f));
+		for (UActorComponent* Component : GetComponents())
+		{
+			if (UWidgetComponent* WidgetComponent = Cast<UWidgetComponent>(Component))
+			{
+				// Match by widget type rather than component name, so it works regardless of
+				// how the component/its assigned Widget Blueprint asset are named.
+				if (Cast<UCockpitDisplayWidget>(WidgetComponent->GetUserWidgetObject()))
+				{
+					CockpitDisplayComponent = WidgetComponent;
+					break;
+				}
+			}
+		}
+	}
+
+	if (CockpitDisplayComponent)
+	{
+		if (UCockpitDisplayWidget* CockpitWidget = Cast<UCockpitDisplayWidget>(CockpitDisplayComponent->GetUserWidgetObject()))
+		{
+			CockpitWidget->UpdateVelocityDisplay(GetLocalVelocity());
+		}
 	}
 }
 
