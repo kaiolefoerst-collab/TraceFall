@@ -56,6 +56,7 @@ void ASpaceshipPawn::BeginPlay()
 {
 	Super::BeginPlay();
 	AddSpaceshipMappingContext();
+	LastSafeTransform = GetActorTransform();
 }
 
 // Called every frame
@@ -117,7 +118,23 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 		ManeuverVelocity *= FMath::Exp(-ManeuverDamping * DeltaTime);
 		LateralVelocity *= FMath::Exp(-ManeuverDamping * DeltaTime);
 	}
-	AddActorWorldOffset((MainEngineVelocity + ManeuverVelocity + LateralVelocity) * DeltaTime * 100.0f, true);
+	FHitResult MovementHitResult;
+	AddActorWorldOffset((MainEngineVelocity + ManeuverVelocity + LateralVelocity) * DeltaTime * 100.0f, true, &MovementHitResult);
+
+	if (MovementHitResult.bBlockingHit)
+	{
+		SetActorTransform(LastSafeTransform);
+
+		MainEngineVelocity *= -TranslationBounceFactor;
+		ManeuverVelocity *= -TranslationBounceFactor;
+		LateralVelocity *= -TranslationBounceFactor;
+
+		AngularVelocity = FVector::ZeroVector;
+	}
+	else
+	{
+		LastSafeTransform = GetActorTransform();
+	}
 
 	const FVector AngularAcceleration(
 		RollInput * RollTorque,

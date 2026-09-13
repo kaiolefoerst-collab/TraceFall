@@ -62,6 +62,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight")
 	float ManeuverDamping = 2.0f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Collision")
+	float TranslationBounceFactor = 0.05f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
 	float PitchTorque = -30.0f;
 
@@ -118,5 +121,6 @@ private:
 	FQuat HorizonRotation = FQuat::Identity;
 	float RollAngle = 0.0f;
 	bool bRotationInitialized = false;
+	FTransform LastSafeTransform;
 
 };
