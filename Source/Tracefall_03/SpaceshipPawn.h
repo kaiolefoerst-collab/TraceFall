@@ -32,28 +32,28 @@ public:
 	UCameraComponent* CockpitCamera;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight")
-	float MaxSpeed = 20000.0f;
+	float MaxSpeed = 500.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight")
-	float MaxSpeedVertical = 100.0f;
+	float MaxSpeedVertical = 50.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight")
 	float MassSpaceship = 100000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight")
-	float ThrustForward = 2000000.0f;
+	float ThrustForward = 4000000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight")
-	float ThrustBackward = 1000000.0f;
+	float ThrustBackward = 4000000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight")
-	float ThrustVertical = 1500000.0f;
+	float ThrustVertical = 4000000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight")
-	float ThrustLateral = 1500000.0f;
+	float ThrustLateral = 4000000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight")
-	float MaxSpeedLateral = 100.0f;
+	float MaxSpeedLateral = 50.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight")
 	float VelocityDamping = 0.46f;
@@ -71,13 +71,13 @@ public:
 	float RollTorque = 50.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
-	float MaxPitchRate = 500.0f;
+	float MaxPitchRate = 5000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
-	float MaxYawRate = 500.0f;
+	float MaxYawRate = 5000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
-	float MaxRollRate = 60.0f;
+	float MaxRollRate = 500.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
 	float RotationDamping = 2.0f;
@@ -103,6 +103,7 @@ private:
 	void HandleSteering(const FInputActionValue& Value);
 	void HandleRoll(const FInputActionValue& Value);
 	void AddSpaceshipMappingContext();
+	void DisplayForwardSpeedDebug(float ForwardSpeedMS) const;
 
 	float ThrustInput = 0.0f;
 	float VerticalThrustInput = 0.0f;

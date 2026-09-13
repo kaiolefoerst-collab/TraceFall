@@ -24,7 +24,7 @@ ASpaceshipPawn::ASpaceshipPawn()
 		SpaceshipMesh->SetStaticMesh(SpaceshipMeshFinder.Object);
 	}
 	SpaceshipMesh->SetRelativeLocation(FVector(0.0f, 0.0f, 0.0f));
-	SpaceshipMesh->SetRelativeRotation(FRotator(0.0f, 0.0f, -90.0f));
+	SpaceshipMesh->SetRelativeRotation(FRotator(0.0f, -90.0f, 0.0f));
 	SpaceshipMesh->SetRelativeScale3D(FVector(1.0f, 1.0f, 1.0f));
 	CockpitCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("CockpitCamera"));
 	CockpitCamera->SetupAttachment(SceneRoot);
@@ -104,9 +104,13 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 		LateralVelocity += RightDirection * (LateralForce / MassSpaceship) * DeltaTime;
 	}
 
-	MainEngineVelocity *= FMath::Exp(-VelocityDamping * DeltaTime);
-	ManeuverVelocity *= FMath::Exp(-ManeuverDamping * DeltaTime);
-	LateralVelocity *= FMath::Exp(-ManeuverDamping * DeltaTime);
+	const bool bTranslationalThrustActive = !FMath::IsNearlyZero(ThrustInput) || !FMath::IsNearlyZero(LateralThrustInput);
+	if (!bTranslationalThrustActive)
+	{
+		MainEngineVelocity *= FMath::Exp(-VelocityDamping * DeltaTime);
+		ManeuverVelocity *= FMath::Exp(-ManeuverDamping * DeltaTime);
+		LateralVelocity *= FMath::Exp(-ManeuverDamping * DeltaTime);
+	}
 	AddActorWorldOffset((MainEngineVelocity + ManeuverVelocity + LateralVelocity) * DeltaTime * 100.0f);
 
 	const FVector AngularAcceleration(
@@ -114,7 +118,13 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 		SteeringInput.Y * PitchTorque,
 		SteeringInput.X * YawTorque);
 	AngularVelocity += AngularAcceleration * DeltaTime;
-	AngularVelocity *= FMath::Exp(-RotationDamping * DeltaTime);
+	const float RotationDampingFactor = FMath::Exp(-RotationDamping * DeltaTime);
+	if (FMath::IsNearlyZero(RollInput))
+	{
+		AngularVelocity.X *= RotationDampingFactor;
+	}
+	AngularVelocity.Y *= RotationDampingFactor;
+	AngularVelocity.Z *= RotationDampingFactor;
 	AngularVelocity.X = FMath::Clamp(AngularVelocity.X, -MaxRollRate, MaxRollRate);
 	AngularVelocity.Y = FMath::Clamp(AngularVelocity.Y, -MaxPitchRate, MaxPitchRate);
 	AngularVelocity.Z = FMath::Clamp(AngularVelocity.Z, -MaxYawRate, MaxYawRate);
@@ -150,6 +160,8 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 	FQuat NewRotation = HorizonRotation * LocalRollRotation;
 	NewRotation.Normalize();
 	SetActorRotation(NewRotation);
+
+	DisplayForwardSpeedDebug(ForwardSpeed);
 }
 
 // Called to bind functionality to input
@@ -270,6 +282,14 @@ void ASpaceshipPawn::HandleSteering(const FInputActionValue& Value)
 void ASpaceshipPawn::HandleRoll(const FInputActionValue& Value)
 {
 	RollInput = Value.Get<float>();
+}
+
+void ASpaceshipPawn::DisplayForwardSpeedDebug(float ForwardSpeedMS) const
+{
+	if (GEngine && IsPlayerControlled())
+	{
+		GEngine->AddOnScreenDebugMessage(1, 0.0f, FColor::Green, FString::Printf(TEXT("Speed: %.1f m/s"), ForwardSpeedMS), true, FVector2D(1.5f, 1.5f));
+	}
 }
 
 void ASpaceshipPawn::AddSpaceshipMappingContext()
