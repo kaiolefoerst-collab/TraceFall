@@ -1,6 +1,6 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-#include "Tracefall_03.h"
+#include "SpaceRace_01.h"
 #include "Modules/ModuleManager.h"
 
-IMPLEMENT_PRIMARY_GAME_MODULE( FDefaultGameModuleImpl, Tracefall_03, "Tracefall_03" );
+IMPLEMENT_PRIMARY_GAME_MODULE( FDefaultGameModuleImpl, SpaceRace_01, "SpaceRace_01" );

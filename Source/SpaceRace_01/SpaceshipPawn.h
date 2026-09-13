@@ -7,6 +7,7 @@
 #include "GameFramework/Pawn.h"
 #include "Camera/CameraComponent.h"
 #include "Components/SceneComponent.h"
+#include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "InputActionValue.h"
 #include "SpaceshipPawn.generated.h"
@@ -14,7 +15,7 @@
 class UInputMappingContext;
 
 UCLASS()
-class TRACEFALL_03_API ASpaceshipPawn : public APawn
+class SPACERACE_01_API ASpaceshipPawn : public APawn
 {
 	GENERATED_BODY()
 
@@ -23,7 +24,7 @@ public:
 	ASpaceshipPawn();
 
 	UPROPERTY(VisibleAnywhere)
-	USceneComponent* SceneRoot;
+	UBoxComponent* SceneRoot;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	UStaticMeshComponent* SpaceshipMesh;

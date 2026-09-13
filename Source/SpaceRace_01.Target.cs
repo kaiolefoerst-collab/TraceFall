@@ -3,13 +3,13 @@
 using UnrealBuildTool;
 using System.Collections.Generic;
 
-public class Tracefall_03Target : TargetRules
+public class SpaceRace_01Target : TargetRules
 {
-	public Tracefall_03Target(TargetInfo Target) : base(Target)
+	public SpaceRace_01Target(TargetInfo Target) : base(Target)
 	{
 		Type = TargetType.Game;
 		DefaultBuildSettings = BuildSettingsVersion.V7;
 
-		ExtraModuleNames.AddRange( new string[] { "Tracefall_03" } );
+		ExtraModuleNames.AddRange( new string[] { "SpaceRace_01" } );
 	}
 }

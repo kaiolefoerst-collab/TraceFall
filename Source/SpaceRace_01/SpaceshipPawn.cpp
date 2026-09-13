@@ -14,14 +14,20 @@
 // Sets default values
 ASpaceshipPawn::ASpaceshipPawn()
 {
-	SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
+	SceneRoot = CreateDefaultSubobject<UBoxComponent>(TEXT("SceneRoot"));
 	RootComponent = SceneRoot;
+	SceneRoot->SetCollisionProfileName(TEXT("BlockAll"));
+	SceneRoot->SetBoxExtent(FVector(32.0f, 32.0f, 32.0f));
+
 	SpaceshipMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("SpaceshipMesh"));
 	SpaceshipMesh->SetupAttachment(SceneRoot);
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> SpaceshipMeshFinder(TEXT("/Game/MyGraphics/SM_SpaceShip01.SM_SpaceShip01"));
 	if (SpaceshipMeshFinder.Succeeded())
 	{
 		SpaceshipMesh->SetStaticMesh(SpaceshipMeshFinder.Object);
+		// SpaceshipMesh is rotated -90 deg yaw relative to SceneRoot, so swap X/Y extents to fit the collision box.
+		const FVector MeshExtent = SpaceshipMeshFinder.Object->GetBounds().BoxExtent;
+		SceneRoot->SetBoxExtent(FVector(MeshExtent.Y, MeshExtent.X, MeshExtent.Z));
 	}
 	SpaceshipMesh->SetRelativeLocation(FVector(0.0f, 0.0f, 0.0f));
 	SpaceshipMesh->SetRelativeRotation(FRotator(0.0f, -90.0f, 0.0f));
@@ -111,7 +117,7 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 		ManeuverVelocity *= FMath::Exp(-ManeuverDamping * DeltaTime);
 		LateralVelocity *= FMath::Exp(-ManeuverDamping * DeltaTime);
 	}
-	AddActorWorldOffset((MainEngineVelocity + ManeuverVelocity + LateralVelocity) * DeltaTime * 100.0f);
+	AddActorWorldOffset((MainEngineVelocity + ManeuverVelocity + LateralVelocity) * DeltaTime * 100.0f, true);
 
 	const FVector AngularAcceleration(
 		RollInput * RollTorque,

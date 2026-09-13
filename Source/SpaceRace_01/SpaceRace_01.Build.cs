@@ -2,9 +2,9 @@
 
 using UnrealBuildTool;
 
-public class Tracefall_03 : ModuleRules
+public class SpaceRace_01 : ModuleRules
 {
-	public Tracefall_03(ReadOnlyTargetRules Target) : base(Target)
+	public SpaceRace_01(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
