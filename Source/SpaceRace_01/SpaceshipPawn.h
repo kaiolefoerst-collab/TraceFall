@@ -9,10 +9,12 @@
 #include "Components/SceneComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/AudioComponent.h"
 #include "InputActionValue.h"
 #include "SpaceshipPawn.generated.h"
 
 class UInputMappingContext;
+class USoundBase;
 
 UCLASS()
 class SPACERACE_01_API ASpaceshipPawn : public APawn
@@ -89,6 +91,27 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputMappingContext> SpaceshipMappingContext;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Sound")
+	UAudioComponent* EngineAudioComponent;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Sound")
+	TObjectPtr<USoundBase> EngineCueSound;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Sound")
+	TObjectPtr<USoundBase> EngineStartSound;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Sound")
+	TObjectPtr<USoundBase> CollisionSound;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sound")
+	float CollisionSoundCooldown = 0.2f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sound")
+	float EngineStartVolumeMultiplier = 10.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sound")
+	float CollisionVolumeMultiplier = 10.0f;
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
@@ -108,6 +131,8 @@ private:
 	void HandleRoll(const FInputActionValue& Value);
 	void AddSpaceshipMappingContext();
 	void DisplayForwardSpeedDebug(float ForwardSpeedMS) const;
+	void UpdateEngineSound(bool bAnyThrustActive);
+	void PlayCollisionSound();
 
 	float ThrustInput = 0.0f;
 	float VerticalThrustInput = 0.0f;
@@ -122,5 +147,7 @@ private:
 	float RollAngle = 0.0f;
 	bool bRotationInitialized = false;
 	FTransform LastSafeTransform;
+	bool bEngineSoundActive = false;
+	float LastCollisionSoundTime = -1000.0f;
 
 };

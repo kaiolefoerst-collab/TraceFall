@@ -10,6 +10,9 @@
 #include "Engine/Engine.h"
 #include "GameFramework/PlayerController.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Sound/SoundBase.h"
+#include "Sound/SoundWave.h"
+#include "Kismet/GameplayStatics.h"
 
 // Sets default values
 ASpaceshipPawn::ASpaceshipPawn()
@@ -46,6 +49,28 @@ ASpaceshipPawn::ASpaceshipPawn()
 		SpaceshipMappingContext = MappingContextFinder.Object;
 	}
 
+	EngineAudioComponent = CreateDefaultSubobject<UAudioComponent>(TEXT("EngineAudioComponent"));
+	EngineAudioComponent->SetupAttachment(SceneRoot);
+	EngineAudioComponent->bAutoActivate = false;
+
+	static ConstructorHelpers::FObjectFinder<USoundBase> EngineCueFinder(TEXT("/Game/MySounds/Engine.Engine"));
+	if (EngineCueFinder.Succeeded())
+	{
+		EngineCueSound = EngineCueFinder.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<USoundBase> EngineStartSoundFinder(TEXT("/Game/MySounds/Whoosh.Whoosh"));
+	if (EngineStartSoundFinder.Succeeded())
+	{
+		EngineStartSound = EngineStartSoundFinder.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<USoundBase> CollisionSoundFinder(TEXT("/Game/MySounds/CollisioninSpace.CollisioninSpace"));
+	if (CollisionSoundFinder.Succeeded())
+	{
+		CollisionSound = CollisionSoundFinder.Object;
+	}
+
  	// Set this pawn to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
 
@@ -57,12 +82,20 @@ void ASpaceshipPawn::BeginPlay()
 	Super::BeginPlay();
 	AddSpaceshipMappingContext();
 	LastSafeTransform = GetActorTransform();
+
+	if (EngineAudioComponent)
+	{
+		EngineAudioComponent->SetSound(EngineCueSound);
+	}
 }
 
 // Called every frame
 void ASpaceshipPawn::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	const bool bAnyThrustActive = !FMath::IsNearlyZero(ThrustInput) || !FMath::IsNearlyZero(VerticalThrustInput) || !FMath::IsNearlyZero(LateralThrustInput);
+	UpdateEngineSound(bAnyThrustActive);
 
 	const FVector ForwardDirection = GetActorForwardVector();
 	const FVector UpDirection = GetActorUpVector();
@@ -130,6 +163,8 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 		LateralVelocity *= -TranslationBounceFactor;
 
 		AngularVelocity = FVector::ZeroVector;
+
+		PlayCollisionSound();
 	}
 	else
 	{
@@ -329,6 +364,62 @@ void ASpaceshipPawn::AddSpaceshipMappingContext()
 				}
 			}
 		}
+	}
+}
+
+void ASpaceshipPawn::UpdateEngineSound(bool bAnyThrustActive)
+{
+	if (bAnyThrustActive && !bEngineSoundActive)
+	{
+		if (EngineAudioComponent && EngineCueSound)
+		{
+			float LoopDuration = EngineCueSound->GetDuration();
+			if (LoopDuration <= 0.0f || LoopDuration >= INDEFINITELY_LOOPING_DURATION)
+			{
+				// GetDuration() returns the sentinel value for sounds set to loop (e.g. a looping SoundWave),
+				// so fall back to the wave's raw clip length to get a usable range for the random start time.
+				if (const USoundWave* SoundWave = Cast<USoundWave>(EngineCueSound))
+				{
+					LoopDuration = SoundWave->Duration;
+				}
+				else
+				{
+					LoopDuration = 0.0f;
+				}
+			}
+
+			const float RandomStartTime = LoopDuration > 0.0f ? FMath::FRandRange(0.0f, LoopDuration) : 0.0f;
+			EngineAudioComponent->Play(RandomStartTime);
+		}
+
+		if (EngineStartSound)
+		{
+			UGameplayStatics::PlaySound2D(this, EngineStartSound, EngineStartVolumeMultiplier);
+		}
+	}
+	else if (!bAnyThrustActive && bEngineSoundActive)
+	{
+		if (EngineAudioComponent)
+		{
+			EngineAudioComponent->Stop();
+		}
+	}
+
+	bEngineSoundActive = bAnyThrustActive;
+}
+
+void ASpaceshipPawn::PlayCollisionSound()
+{
+	if (!CollisionSound)
+	{
+		return;
+	}
+
+	const float CurrentTime = GetWorld()->GetTimeSeconds();
+	if (CurrentTime - LastCollisionSoundTime >= CollisionSoundCooldown)
+	{
+		UGameplayStatics::PlaySound2D(this, CollisionSound, CollisionVolumeMultiplier);
+		LastCollisionSoundTime = CurrentTime;
 	}
 }
 
