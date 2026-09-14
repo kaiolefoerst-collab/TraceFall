@@ -6,16 +6,17 @@
 #include "Blueprint/UserWidget.h"
 #include "CockpitDisplayWidget.generated.h"
 
+class UOverlay;
 class UBorder;
 class UHorizontalBox;
 class UTextBlock;
 
 // Builds and updates the cockpit system display entirely in C++.
-// The corresponding Widget Blueprint (WBP_CockpitDisplay) only needs to inherit from
-// this class - it must not contain any Designer content or Event Graph logic.
+// The corresponding Widget Blueprint (WBP_CockpitDisplay / BP_Dashboard) only needs to
+// inherit from this class - it must not contain any Designer content or Event Graph logic.
 //
-// Laid out as a single flat, wide bar (not a tall panel) so it fits as a bottom-of-screen
-// HUD strip when the owning Widget Component is set to Screen space.
+// Shown via ASpaceshipPawn as a HUD overlay (CreateWidget + AddToViewport). A single flat,
+// wide bar anchored to the bottom-center of the screen, not a tall panel.
 UCLASS()
 class SPACERACE_01_API UCockpitDisplayWidget : public UUserWidget
 {
@@ -26,6 +27,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Cockpit Display")
 	void UpdateVelocityDisplay(const FVector& LocalVelocity);
 
+	// FuelPercent is in the range [0, 100].
+	UFUNCTION(BlueprintCallable, Category = "Cockpit Display")
+	void UpdateFuelDisplay(float FuelPercent);
+
 protected:
 	virtual void NativeOnInitialized() override;
 
@@ -33,6 +38,10 @@ private:
 	void BuildLayout();
 	UTextBlock* CreateMetricText();
 	static FString FormatLine(const TCHAR* Label, float SpeedMetersPerSecond);
+
+	// Full-screen, invisible root that positions the visible bar at the bottom-center.
+	UPROPERTY()
+	TObjectPtr<UOverlay> RootOverlay;
 
 	UPROPERTY()
 	TObjectPtr<UBorder> RootBorder;
@@ -51,4 +60,7 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> UpValueText;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> FuelValueText;
 };

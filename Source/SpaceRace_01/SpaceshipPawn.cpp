@@ -13,8 +13,8 @@
 #include "Sound/SoundBase.h"
 #include "Sound/SoundWave.h"
 #include "Kismet/GameplayStatics.h"
-#include "Components/WidgetComponent.h"
 #include "CockpitDisplayWidget.h"
+#include "Blueprint/UserWidget.h"
 
 // Sets default values
 ASpaceshipPawn::ASpaceshipPawn()
@@ -91,6 +91,23 @@ void ASpaceshipPawn::BeginPlay()
 	}
 }
 
+void ASpaceshipPawn::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+
+	if (!CockpitDisplayWidgetInstance && CockpitDisplayWidgetClass && NewController && NewController->IsLocalController())
+	{
+		if (APlayerController* PlayerController = Cast<APlayerController>(NewController))
+		{
+			CockpitDisplayWidgetInstance = CreateWidget<UCockpitDisplayWidget>(PlayerController, CockpitDisplayWidgetClass);
+			if (CockpitDisplayWidgetInstance)
+			{
+				CockpitDisplayWidgetInstance->AddToViewport();
+			}
+		}
+	}
+}
+
 // Called every frame
 void ASpaceshipPawn::Tick(float DeltaTime)
 {
@@ -102,9 +119,13 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 	const FVector ForwardDirection = GetActorForwardVector();
 	const FVector UpDirection = GetActorUpVector();
 	const FVector RightDirection = GetActorRightVector();
-	const float ForwardSpeed = FVector::DotProduct(MainEngineVelocity, ForwardDirection);
-	const float VerticalSpeed = FVector::DotProduct(ManeuverVelocity, UpDirection);
-	const float LateralSpeed = FVector::DotProduct(LateralVelocity, RightDirection);
+
+	// Single velocity vector for all thrusters. Decompose into local ship axes for this frame
+	// so force/damping/limits always act relative to the ship's current orientation.
+	const FVector LocalVelocity = GetActorTransform().InverseTransformVectorNoScale(Velocity);
+	float ForwardSpeed = LocalVelocity.X;
+	float LateralSpeed = LocalVelocity.Y;
+	float VerticalSpeed = LocalVelocity.Z;
 	float ForwardForce = 0.0f;
 	float VerticalForce = 0.0f;
 	float LateralForce = 0.0f;
@@ -139,33 +160,36 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 		}
 	}
 
+	ConsumeFuel(ForwardForce, VerticalForce, LateralForce, DeltaTime);
+
 	if (MassSpaceship > 0.0f)
 	{
-		MainEngineVelocity += ForwardDirection * (ForwardForce / MassSpaceship) * DeltaTime;
-		ManeuverVelocity += UpDirection * (VerticalForce / MassSpaceship) * DeltaTime;
-		LateralVelocity += RightDirection * (LateralForce / MassSpaceship) * DeltaTime;
+		ForwardSpeed += (ForwardForce / MassSpaceship) * DeltaTime;
+		VerticalSpeed += (VerticalForce / MassSpaceship) * DeltaTime;
+		LateralSpeed += (LateralForce / MassSpaceship) * DeltaTime;
 	}
 
 	const bool bTranslationalThrustActive = !FMath::IsNearlyZero(ThrustInput) || !FMath::IsNearlyZero(LateralThrustInput);
 	if (!bTranslationalThrustActive)
 	{
-		MainEngineVelocity *= FMath::Exp(-VelocityDamping * DeltaTime);
-		LateralVelocity *= FMath::Exp(-ManeuverDamping * DeltaTime);
+		ForwardSpeed *= FMath::Exp(-VelocityDamping * DeltaTime);
+		LateralSpeed *= FMath::Exp(-ManeuverDamping * DeltaTime);
 	}
 	if (FMath::IsNearlyZero(VerticalThrustInput))
 	{
-		ManeuverVelocity *= FMath::Exp(-ManeuverDamping * DeltaTime);
+		VerticalSpeed *= FMath::Exp(-ManeuverDamping * DeltaTime);
 	}
+
+	Velocity = ForwardDirection * ForwardSpeed + RightDirection * LateralSpeed + UpDirection * VerticalSpeed;
+
 	FHitResult MovementHitResult;
-	AddActorWorldOffset((MainEngineVelocity + ManeuverVelocity + LateralVelocity) * DeltaTime * 100.0f, true, &MovementHitResult);
+	AddActorWorldOffset(Velocity * DeltaTime * 100.0f, true, &MovementHitResult);
 
 	if (MovementHitResult.bBlockingHit)
 	{
 		SetActorTransform(LastSafeTransform);
 
-		MainEngineVelocity *= -TranslationBounceFactor;
-		ManeuverVelocity *= -TranslationBounceFactor;
-		LateralVelocity *= -TranslationBounceFactor;
+		Velocity *= -TranslationBounceFactor;
 
 		AngularVelocity = FVector::ZeroVector;
 
@@ -341,35 +365,35 @@ void ASpaceshipPawn::HandleRoll(const FInputActionValue& Value)
 
 FVector ASpaceshipPawn::GetLocalVelocity() const
 {
-	const FVector TotalWorldVelocity = MainEngineVelocity + ManeuverVelocity + LateralVelocity;
-	return GetActorTransform().InverseTransformVectorNoScale(TotalWorldVelocity);
+	return GetActorTransform().InverseTransformVectorNoScale(Velocity);
+}
+
+float ASpaceshipPawn::GetFuelPercentage() const
+{
+	return FuelTankCapacity > 0.0f ? FMath::Clamp(CurrentFuel / FuelTankCapacity, 0.0f, 1.0f) * 100.0f : 0.0f;
+}
+
+void ASpaceshipPawn::ConsumeFuel(float ForwardForce, float VerticalForce, float LateralForce, float DeltaTime)
+{
+	if (CurrentFuel <= 0.0f || EngineEfficiency <= 0.0f)
+	{
+		CurrentFuel = FMath::Max(CurrentFuel, 0.0f);
+		return;
+	}
+
+	// All nozzles share the same efficiency factor. Consumption is proportional to the thrust
+	// each active nozzle is actually producing this frame (zero once a nozzle is at its speed limit).
+	const float TotalThrustMagnitude = FMath::Abs(ForwardForce) + FMath::Abs(VerticalForce) + FMath::Abs(LateralForce);
+	const float FuelConsumptionRate = TotalThrustMagnitude * MassSpaceship / EngineEfficiency;
+	CurrentFuel = FMath::Max(0.0f, CurrentFuel - FuelConsumptionRate * DeltaTime);
 }
 
 void ASpaceshipPawn::UpdateCockpitDisplay()
 {
-	if (!CockpitDisplayComponent)
+	if (CockpitDisplayWidgetInstance)
 	{
-		for (UActorComponent* Component : GetComponents())
-		{
-			if (UWidgetComponent* WidgetComponent = Cast<UWidgetComponent>(Component))
-			{
-				// Match by widget type rather than component name, so it works regardless of
-				// how the component/its assigned Widget Blueprint asset are named.
-				if (Cast<UCockpitDisplayWidget>(WidgetComponent->GetUserWidgetObject()))
-				{
-					CockpitDisplayComponent = WidgetComponent;
-					break;
-				}
-			}
-		}
-	}
-
-	if (CockpitDisplayComponent)
-	{
-		if (UCockpitDisplayWidget* CockpitWidget = Cast<UCockpitDisplayWidget>(CockpitDisplayComponent->GetUserWidgetObject()))
-		{
-			CockpitWidget->UpdateVelocityDisplay(GetLocalVelocity());
-		}
+		CockpitDisplayWidgetInstance->UpdateVelocityDisplay(GetLocalVelocity());
+		CockpitDisplayWidgetInstance->UpdateFuelDisplay(GetFuelPercentage());
 	}
 }
 

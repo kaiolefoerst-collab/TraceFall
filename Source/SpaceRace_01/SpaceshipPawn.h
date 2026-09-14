@@ -15,7 +15,6 @@
 
 class UInputMappingContext;
 class USoundBase;
-class UWidgetComponent;
 class UCockpitDisplayWidget;
 
 UCLASS()
@@ -69,6 +68,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Collision")
 	float TranslationBounceFactor = 0.05f;
 
+	// Maximum amount of fuel the tank can hold.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Fuel")
+	float FuelTankCapacity = 1000.0f;
+
+	// Current fuel level, clamped to [0, FuelTankCapacity].
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Fuel")
+	float CurrentFuel = 1000.0f;
+
+	// Shared efficiency divisor for all nozzles: consumption = |Thrust| * MassSpaceship / EngineEfficiency.
+	// Higher value = more fuel-efficient engines (less consumption for the same thrust).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Fuel")
+	float EngineEfficiency = 40000000000.0f;
+
+	UFUNCTION(BlueprintPure, Category = "Flight|Fuel")
+	float GetFuelPercentage() const;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Rotation")
 	float PitchTorque = -30.0f;
 
@@ -118,9 +133,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Flight")
 	FVector GetLocalVelocity() const;
 
+	// Widget class shown as a HUD overlay (via CreateWidget + AddToViewport) for the local pilot.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Cockpit Display")
+	TSubclassOf<UCockpitDisplayWidget> CockpitDisplayWidgetClass;
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
+
+	virtual void PossessedBy(AController* NewController) override;
 
 public:	
 	// Called every frame
@@ -139,13 +160,12 @@ private:
 	void UpdateEngineSound(bool bAnyThrustActive);
 	void PlayCollisionSound();
 	void UpdateCockpitDisplay();
+	void ConsumeFuel(float ForwardForce, float VerticalForce, float LateralForce, float DeltaTime);
 
 	float ThrustInput = 0.0f;
 	float VerticalThrustInput = 0.0f;
 	float LateralThrustInput = 0.0f;
-	FVector MainEngineVelocity = FVector::ZeroVector;
-	FVector ManeuverVelocity = FVector::ZeroVector;
-	FVector LateralVelocity = FVector::ZeroVector;
+	FVector Velocity = FVector::ZeroVector;
 	FVector2D SteeringInput = FVector2D::ZeroVector;
 	float RollInput = 0.0f;
 	FVector AngularVelocity = FVector::ZeroVector;
@@ -155,6 +175,8 @@ private:
 	FTransform LastSafeTransform;
 	bool bEngineSoundActive = false;
 	float LastCollisionSoundTime = -1000.0f;
-	UWidgetComponent* CockpitDisplayComponent = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UCockpitDisplayWidget> CockpitDisplayWidgetInstance;
 
 };

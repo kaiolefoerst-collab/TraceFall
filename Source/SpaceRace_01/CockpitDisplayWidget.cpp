@@ -3,6 +3,8 @@
 #include "CockpitDisplayWidget.h"
 
 #include "Blueprint/WidgetTree.h"
+#include "Components/Overlay.h"
+#include "Components/OverlaySlot.h"
 #include "Components/Border.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
@@ -22,12 +24,22 @@ void UCockpitDisplayWidget::BuildLayout()
 		return;
 	}
 
+	// Invisible root filling the whole viewport, purely so it can anchor the visible bar
+	// to the bottom-center instead of stretching the dark background over the full screen.
+	RootOverlay = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("RootOverlay"));
+	WidgetTree->RootWidget = RootOverlay;
+
 	RootBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("RootBorder"));
 	// A self-contained color brush (no external style/texture resource lookup) so the background
 	// reliably renders regardless of active Slate style.
 	RootBorder->SetBrush(FSlateColorBrush(FLinearColor(0.02f, 0.02f, 0.035f, 0.85f)));
 	RootBorder->SetPadding(FMargin(18.0f, 8.0f));
-	WidgetTree->RootWidget = RootBorder;
+	if (UOverlaySlot* BorderSlot = RootOverlay->AddChildToOverlay(RootBorder))
+	{
+		BorderSlot->SetHorizontalAlignment(HAlign_Center);
+		BorderSlot->SetVerticalAlignment(VAlign_Bottom);
+		BorderSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 40.0f));
+	}
 
 	ContentBox = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("ContentBox"));
 	RootBorder->SetContent(ContentBox);
@@ -45,8 +57,10 @@ void UCockpitDisplayWidget::BuildLayout()
 	ForwardValueText = CreateMetricText();
 	RightValueText = CreateMetricText();
 	UpValueText = CreateMetricText();
+	FuelValueText = CreateMetricText();
 
 	UpdateVelocityDisplay(FVector::ZeroVector);
+	UpdateFuelDisplay(100.0f);
 }
 
 UTextBlock* UCockpitDisplayWidget::CreateMetricText()
@@ -81,5 +95,13 @@ void UCockpitDisplayWidget::UpdateVelocityDisplay(const FVector& LocalVelocity)
 	if (UpValueText)
 	{
 		UpValueText->SetText(FText::FromString(FormatLine(TEXT("UP"), LocalVelocity.Z)));
+	}
+}
+
+void UCockpitDisplayWidget::UpdateFuelDisplay(float FuelPercent)
+{
+	if (FuelValueText)
+	{
+		FuelValueText->SetText(FText::FromString(FString::Printf(TEXT("FUEL %.0f%%"), FuelPercent)));
 	}
 }
