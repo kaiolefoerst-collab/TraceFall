@@ -15,6 +15,8 @@
 #include "Kismet/GameplayStatics.h"
 #include "CockpitDisplayWidget.h"
 #include "Blueprint/UserWidget.h"
+#include "SpaceRaceCheckpointComponent.h"
+#include "SpaceRaceGameMode.h"
 
 // Sets default values
 ASpaceshipPawn::ASpaceshipPawn()
@@ -23,6 +25,8 @@ ASpaceshipPawn::ASpaceshipPawn()
 	RootComponent = SceneRoot;
 	SceneRoot->SetCollisionProfileName(TEXT("BlockAll"));
 	SceneRoot->SetBoxExtent(FVector(32.0f, 32.0f, 32.0f));
+	SceneRoot->SetGenerateOverlapEvents(true);
+	SceneRoot->OnComponentBeginOverlap.AddDynamic(this, &ASpaceshipPawn::HandleCheckpointOverlap);
 
 	SpaceshipMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("SpaceshipMesh"));
 	SpaceshipMesh->SetupAttachment(SceneRoot);
@@ -361,6 +365,30 @@ void ASpaceshipPawn::HandleSteering(const FInputActionValue& Value)
 void ASpaceshipPawn::HandleRoll(const FInputActionValue& Value)
 {
 	RollInput = Value.Get<float>();
+}
+
+void ASpaceshipPawn::HandleCheckpointOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+{
+	if (!OtherActor)
+	{
+		return;
+	}
+
+	const USpaceRaceCheckpointComponent* CheckpointComponent = OtherActor->FindComponentByClass<USpaceRaceCheckpointComponent>();
+	if (!CheckpointComponent)
+	{
+		return;
+	}
+
+	if (CockpitDisplayWidgetInstance)
+	{
+		CockpitDisplayWidgetInstance->OutputMessage(CheckpointComponent->SpeechText);
+	}
+
+	if (ASpaceRaceGameMode* GameMode = GetWorld()->GetAuthGameMode<ASpaceRaceGameMode>())
+	{
+		GameMode->CheckpointReached();
+	}
 }
 
 FVector ASpaceshipPawn::GetLocalVelocity() const

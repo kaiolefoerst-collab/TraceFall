@@ -156,6 +156,10 @@ private:
 	void HandleLateralThrust(const FInputActionValue& Value);
 	void HandleSteering(const FInputActionValue& Value);
 	void HandleRoll(const FInputActionValue& Value);
+
+	UFUNCTION()
+	void HandleCheckpointOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+
 	void AddSpaceshipMappingContext();
 	void UpdateEngineSound(bool bAnyThrustActive);
 	void PlayCollisionSound();

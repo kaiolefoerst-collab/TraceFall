@@ -31,6 +31,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Cockpit Display")
 	void UpdateFuelDisplay(float FuelPercent);
 
+	// Displays an arbitrary status message (e.g. a checkpoint's SpeechText). Display only -
+	// no text-to-speech, audio, or checkpoint logic here.
+	UFUNCTION(BlueprintCallable, Category = "Cockpit Display")
+	void OutputMessage(const FText& Message);
+
 protected:
 	virtual void NativeOnInitialized() override;
 
@@ -63,4 +68,8 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> FuelValueText;
+
+	// Top-center status line used by OutputMessage(), e.g. for checkpoint SpeechText.
+	UPROPERTY()
+	TObjectPtr<UTextBlock> MessageText;
 };

@@ -59,6 +59,19 @@ void UCockpitDisplayWidget::BuildLayout()
 	UpValueText = CreateMetricText();
 	FuelValueText = CreateMetricText();
 
+	// Separate top-center status line, independent of the velocity/fuel bar below.
+	MessageText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("MessageText"));
+	MessageText->SetText(FText::GetEmpty());
+	MessageText->SetJustification(ETextJustify::Center);
+	MessageText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.95f, 0.6f)));
+	MessageText->SetFontSize(22);
+	if (UOverlaySlot* MessageSlot = RootOverlay->AddChildToOverlay(MessageText))
+	{
+		MessageSlot->SetHorizontalAlignment(HAlign_Center);
+		MessageSlot->SetVerticalAlignment(VAlign_Top);
+		MessageSlot->SetPadding(FMargin(40.0f, 60.0f, 40.0f, 0.0f));
+	}
+
 	UpdateVelocityDisplay(FVector::ZeroVector);
 	UpdateFuelDisplay(100.0f);
 }
@@ -103,5 +116,13 @@ void UCockpitDisplayWidget::UpdateFuelDisplay(float FuelPercent)
 	if (FuelValueText)
 	{
 		FuelValueText->SetText(FText::FromString(FString::Printf(TEXT("FUEL %.0f%%"), FuelPercent)));
+	}
+}
+
+void UCockpitDisplayWidget::OutputMessage(const FText& Message)
+{
+	if (MessageText)
+	{
+		MessageText->SetText(Message);
 	}
 }
