@@ -22,6 +22,15 @@ public:
 	// Called by the ship when it overlaps the currently active checkpoint.
 	void CheckpointReached();
 
+	// The checkpoint the ship should currently be heading to, or nullptr if none is active
+	// (e.g. before initialization, or after the race has finished). Exposed read-only so other
+	// systems (e.g. the cockpit display) can query it without keeping a second checkpoint list.
+	AActor* GetActiveCheckpoint() const;
+
+	// Seconds elapsed since the race/exercise actually started (BeginPlay), the single
+	// authoritative time base for this race - not tied to any display widget's lifetime.
+	float GetElapsedRaceTime() const;
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -41,4 +50,6 @@ private:
 	float FinishDelaySeconds = 10.0f;
 
 	FTimerHandle FinishTimerHandle;
+
+	float RaceStartTimeSeconds = 0.0f;
 };

@@ -36,7 +36,21 @@ namespace
 void ASpaceRaceGameMode::BeginPlay()
 {
 	Super::BeginPlay();
+
+	RaceStartTimeSeconds = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+
 	InitializeCheckpoints();
+}
+
+AActor* ASpaceRaceGameMode::GetActiveCheckpoint() const
+{
+	return SortedCheckpoints.IsValidIndex(CurrentCheckpointIndex) ? SortedCheckpoints[CurrentCheckpointIndex] : nullptr;
+}
+
+float ASpaceRaceGameMode::GetElapsedRaceTime() const
+{
+	const UWorld* World = GetWorld();
+	return World ? (World->GetTimeSeconds() - RaceStartTimeSeconds) : 0.0f;
 }
 
 void ASpaceRaceGameMode::InitializeCheckpoints()

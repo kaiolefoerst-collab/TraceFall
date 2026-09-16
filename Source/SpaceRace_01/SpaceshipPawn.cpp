@@ -17,6 +17,9 @@
 #include "Blueprint/UserWidget.h"
 #include "SpaceRaceCheckpointComponent.h"
 #include "SpaceRaceGameMode.h"
+#include "PhysicsEngine/BodySetup.h"
+
+DEFINE_LOG_CATEGORY_STATIC(LogSpaceRaceGravity, Log, All);
 
 // Sets default values
 ASpaceshipPawn::ASpaceshipPawn()
@@ -88,6 +91,7 @@ void ASpaceshipPawn::BeginPlay()
 	Super::BeginPlay();
 	AddSpaceshipMappingContext();
 	LastSafeTransform = GetActorTransform();
+	FindGravityPlanets();
 
 	if (EngineAudioComponent)
 	{
@@ -125,8 +129,11 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 	const FVector RightDirection = GetActorRightVector();
 
 	// Single velocity vector for all thrusters. Decompose into local ship axes for this frame
-	// so force/damping/limits always act relative to the ship's current orientation.
-	const FVector LocalVelocity = GetActorTransform().InverseTransformVectorNoScale(Velocity);
+	// so force/damping/limits always act relative to the ship's current orientation. With no
+	// force/damping applied, decomposing and recomposing with the same basis is a no-op, so this
+	// also stays correct (identity) for FlightAssistantMode::None further below.
+	const FTransform ActorTransform = GetActorTransform();
+	const FVector LocalVelocity = ActorTransform.InverseTransformVectorNoScale(Velocity);
 	float ForwardSpeed = LocalVelocity.X;
 	float LateralSpeed = LocalVelocity.Y;
 	float VerticalSpeed = LocalVelocity.Z;
@@ -134,10 +141,16 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 	float VerticalForce = 0.0f;
 	float LateralForce = 0.0f;
 
+	// None and PureForward both mean fully manual, physically direct translation: no speed
+	// clamping and no damping may act on the linear Velocity in either of them. Kept as a single
+	// flag (rather than removing the underlying systems) so later modes can re-enable them.
+	const bool bApplyDampingAndSpeedLimits = (FlightAssistantMode != EFlightAssistantMode::None
+		&& FlightAssistantMode != EFlightAssistantMode::PureForward);
+
 	if (!FMath::IsNearlyZero(ThrustInput))
 	{
-		const bool bAtForwardLimit = ThrustInput > 0.0f && ForwardSpeed >= MaxSpeed;
-		const bool bAtBackwardLimit = ThrustInput < 0.0f && ForwardSpeed <= -MaxSpeed;
+		const bool bAtForwardLimit = bApplyDampingAndSpeedLimits && ThrustInput > 0.0f && ForwardSpeed >= MaxSpeed;
+		const bool bAtBackwardLimit = bApplyDampingAndSpeedLimits && ThrustInput < 0.0f && ForwardSpeed <= -MaxSpeed;
 		if (!bAtForwardLimit && !bAtBackwardLimit)
 		{
 			ForwardForce = ThrustInput > 0.0f ? ThrustInput * ThrustForward : ThrustInput * ThrustBackward;
@@ -146,8 +159,8 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 
 	if (!FMath::IsNearlyZero(VerticalThrustInput))
 	{
-		const bool bAtUpwardLimit = VerticalThrustInput > 0.0f && VerticalSpeed >= MaxSpeedVertical;
-		const bool bAtDownwardLimit = VerticalThrustInput < 0.0f && VerticalSpeed <= -MaxSpeedVertical;
+		const bool bAtUpwardLimit = bApplyDampingAndSpeedLimits && VerticalThrustInput > 0.0f && VerticalSpeed >= MaxSpeedVertical;
+		const bool bAtDownwardLimit = bApplyDampingAndSpeedLimits && VerticalThrustInput < 0.0f && VerticalSpeed <= -MaxSpeedVertical;
 		if (!bAtUpwardLimit && !bAtDownwardLimit)
 		{
 			VerticalForce = VerticalThrustInput * ThrustVertical;
@@ -156,44 +169,89 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 
 	if (!FMath::IsNearlyZero(LateralThrustInput))
 	{
-		const bool bAtRightLimit = LateralThrustInput > 0.0f && LateralSpeed >= MaxSpeedLateral;
-		const bool bAtLeftLimit = LateralThrustInput < 0.0f && LateralSpeed <= -MaxSpeedLateral;
+		const bool bAtRightLimit = bApplyDampingAndSpeedLimits && LateralThrustInput > 0.0f && LateralSpeed >= MaxSpeedLateral;
+		const bool bAtLeftLimit = bApplyDampingAndSpeedLimits && LateralThrustInput < 0.0f && LateralSpeed <= -MaxSpeedLateral;
 		if (!bAtRightLimit && !bAtLeftLimit)
 		{
 			LateralForce = LateralThrustInput * ThrustLateral;
 		}
 	}
 
+	// PureForward only engages while the player is actively giving forward/backward thrust
+	// (W/S); without it, PureForward is translationally identical to None (verified below since
+	// every Assist*Force stays exactly 0.0 and nothing else in this function checks the mode).
+	const bool bPureForwardAssistEligible = (FlightAssistantMode == EFlightAssistantMode::PureForward)
+		&& !FMath::IsNearlyZero(ThrustInput) && DeltaTime > 0.0f && MassSpaceship > 0.0f;
+
+	// Actively counter-accelerate RightVelocity/UpVelocity toward (but never past) zero using the
+	// same lateral/vertical thruster power available to the player, reacting to the ship's total
+	// current velocity (thrust + gravity) so planetary drift is countered too. Each axis is only
+	// corrected while the player isn't manually commanding that same axis (A/D, Space/Ctrl take
+	// precedence and fully disable the assistant on their respective axis).
+	// Kept as separate Assist*Force variables (not merged into LateralForce/VerticalForce above,
+	// which represent player-commanded thrust) so a future fuel-consumption pass can attribute
+	// the assistant's own thruster usage distinctly from the player's.
+	float AssistLateralForce = 0.0f;
+	float AssistVerticalForce = 0.0f;
+	if (bPureForwardAssistEligible)
+	{
+		const FVector LocalTotalVelocity = ActorTransform.InverseTransformVectorNoScale(Velocity + GravityVelocity);
+
+		if (FMath::IsNearlyZero(LateralThrustInput))
+		{
+			const float MaxLateralAssistAccel = ThrustLateral / MassSpaceship;
+			const float NeededRightAccel = FMath::Clamp(-LocalTotalVelocity.Y / DeltaTime, -MaxLateralAssistAccel, MaxLateralAssistAccel);
+			AssistLateralForce = NeededRightAccel * MassSpaceship;
+		}
+
+		if (FMath::IsNearlyZero(VerticalThrustInput))
+		{
+			const float MaxVerticalAssistAccel = ThrustVertical / MassSpaceship;
+			const float NeededUpAccel = FMath::Clamp(-LocalTotalVelocity.Z / DeltaTime, -MaxVerticalAssistAccel, MaxVerticalAssistAccel);
+			AssistVerticalForce = NeededUpAccel * MassSpaceship;
+		}
+	}
+
+	// Fuel accounting currently only covers player-commanded thrust; the assistant's counter-
+	// thrust force is deliberately excluded here until it is wired into fuel consumption.
 	ConsumeFuel(ForwardForce, VerticalForce, LateralForce, DeltaTime);
 
 	if (MassSpaceship > 0.0f)
 	{
 		ForwardSpeed += (ForwardForce / MassSpaceship) * DeltaTime;
-		VerticalSpeed += (VerticalForce / MassSpaceship) * DeltaTime;
-		LateralSpeed += (LateralForce / MassSpaceship) * DeltaTime;
+		VerticalSpeed += ((VerticalForce + AssistVerticalForce) / MassSpaceship) * DeltaTime;
+		LateralSpeed += ((LateralForce + AssistLateralForce) / MassSpaceship) * DeltaTime;
 	}
 
 	const bool bTranslationalThrustActive = !FMath::IsNearlyZero(ThrustInput) || !FMath::IsNearlyZero(LateralThrustInput);
-	if (!bTranslationalThrustActive)
+	if (bApplyDampingAndSpeedLimits && !bTranslationalThrustActive)
 	{
 		ForwardSpeed *= FMath::Exp(-VelocityDamping * DeltaTime);
 		LateralSpeed *= FMath::Exp(-ManeuverDamping * DeltaTime);
 	}
-	if (FMath::IsNearlyZero(VerticalThrustInput))
+	if (bApplyDampingAndSpeedLimits && FMath::IsNearlyZero(VerticalThrustInput))
 	{
 		VerticalSpeed *= FMath::Exp(-ManeuverDamping * DeltaTime);
 	}
 
 	Velocity = ForwardDirection * ForwardSpeed + RightDirection * LateralSpeed + UpDirection * VerticalSpeed;
 
+	// Planetary gravity is a persistent external acceleration. It is accumulated into its own
+	// GravityVelocity instead of being folded into Velocity above, so it never gets decomposed
+	// into local Forward/Lateral/Vertical speed and incorrectly removed by VelocityDamping /
+	// ManeuverDamping whenever the corresponding thrust axis happens to be inactive.
+	TotalGravityAcceleration = ComputeGravityAcceleration();
+	GravityVelocity += TotalGravityAcceleration * DeltaTime;
+
 	FHitResult MovementHitResult;
-	AddActorWorldOffset(Velocity * DeltaTime * 100.0f, true, &MovementHitResult);
+	AddActorWorldOffset((Velocity + GravityVelocity) * DeltaTime * 100.0f, true, &MovementHitResult);
 
 	if (MovementHitResult.bBlockingHit)
 	{
 		SetActorTransform(LastSafeTransform);
 
 		Velocity *= -TranslationBounceFactor;
+		GravityVelocity *= -TranslationBounceFactor;
 
 		AngularVelocity = FVector::ZeroVector;
 
@@ -393,7 +451,10 @@ void ASpaceshipPawn::HandleCheckpointOverlap(UPrimitiveComponent* OverlappedComp
 
 FVector ASpaceshipPawn::GetLocalVelocity() const
 {
-	return GetActorTransform().InverseTransformVectorNoScale(Velocity);
+	// The true world velocity is Velocity + GravityVelocity (see Tick()'s AddActorWorldOffset
+	// call) - both must be included so the cockpit reflects gravity drift and, while
+	// FlightAssistantMode::PureForward is correcting it, the resulting approach toward 0.
+	return GetActorTransform().InverseTransformVectorNoScale(Velocity + GravityVelocity);
 }
 
 float ASpaceshipPawn::GetFuelPercentage() const
@@ -418,11 +479,158 @@ void ASpaceshipPawn::ConsumeFuel(float ForwardForce, float VerticalForce, float 
 
 void ASpaceshipPawn::UpdateCockpitDisplay()
 {
-	if (CockpitDisplayWidgetInstance)
+	if (!CockpitDisplayWidgetInstance)
 	{
-		CockpitDisplayWidgetInstance->UpdateVelocityDisplay(GetLocalVelocity());
-		CockpitDisplayWidgetInstance->UpdateFuelDisplay(GetFuelPercentage());
+		return;
 	}
+
+	CockpitDisplayWidgetInstance->UpdateVelocityDisplay(GetLocalVelocity());
+	CockpitDisplayWidgetInstance->UpdateFuelDisplay(GetFuelPercentage());
+	CockpitDisplayWidgetInstance->UpdateGravityDisplay(TotalGravityAcceleration);
+
+	// Reuses the existing GameMode checkpoint management - no second checkpoint tracking here.
+	ASpaceRaceGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<ASpaceRaceGameMode>() : nullptr;
+
+	if (AActor* ActiveCheckpoint = GameMode ? GameMode->GetActiveCheckpoint() : nullptr)
+	{
+		const float CheckpointDistance = FVector::Dist(GetActorLocation(), ActiveCheckpoint->GetActorLocation());
+		CockpitDisplayWidgetInstance->UpdateCheckpointDistance(true, CheckpointDistance);
+	}
+	else
+	{
+		CockpitDisplayWidgetInstance->UpdateCheckpointDistance(false, 0.0f);
+	}
+
+	// Reuses the existing cached GravityPlanets list - no new per-frame Actor search.
+	if (AActor* NearestPlanet = FindNearestGravityPlanet())
+	{
+		const float CenterDistance = FVector::Dist(GetActorLocation(), NearestPlanet->GetActorLocation());
+		float SurfaceDistance = CenterDistance;
+		if (const UStaticMeshComponent* PlanetMesh = NearestPlanet->FindComponentByClass<UStaticMeshComponent>())
+		{
+			// World-space bounds already account for the planet's World Scale.
+			SurfaceDistance = CenterDistance - PlanetMesh->Bounds.SphereRadius;
+		}
+		CockpitDisplayWidgetInstance->UpdatePlanetDistances(true, CenterDistance, SurfaceDistance);
+	}
+	else
+	{
+		CockpitDisplayWidgetInstance->UpdatePlanetDistances(false, 0.0f, 0.0f);
+	}
+
+	CockpitDisplayWidgetInstance->UpdateElapsedTime(GameMode ? GameMode->GetElapsedRaceTime() : 0.0f);
+}
+
+AActor* ASpaceshipPawn::FindNearestGravityPlanet() const
+{
+	AActor* NearestPlanet = nullptr;
+	float NearestDistanceSquared = TNumericLimits<float>::Max();
+	const FVector ShipLocation = GetActorLocation();
+
+	for (const TWeakObjectPtr<AActor>& PlanetPtr : GravityPlanets)
+	{
+		AActor* Planet = PlanetPtr.Get();
+		if (!Planet)
+		{
+			continue;
+		}
+
+		const float DistanceSquared = FVector::DistSquared(ShipLocation, Planet->GetActorLocation());
+		if (DistanceSquared < NearestDistanceSquared)
+		{
+			NearestDistanceSquared = DistanceSquared;
+			NearestPlanet = Planet;
+		}
+	}
+
+	return NearestPlanet;
+}
+
+void ASpaceshipPawn::FindGravityPlanets()
+{
+	GravityPlanets.Reset();
+
+	TArray<AActor*> FoundActors;
+	UGameplayStatics::GetAllActorsWithTag(GetWorld(), FName(TEXT("Planet")), FoundActors);
+
+	UE_LOG(LogSpaceRaceGravity, Log, TEXT("FindGravityPlanets: %d actor(s) tagged \"Planet\"."), FoundActors.Num());
+
+	for (AActor* Actor : FoundActors)
+	{
+		if (!Actor)
+		{
+			continue;
+		}
+
+		GravityPlanets.Add(Actor);
+
+		UStaticMeshComponent* PlanetMesh = Actor->FindComponentByClass<UStaticMeshComponent>();
+		if (!PlanetMesh)
+		{
+			UE_LOG(LogSpaceRaceGravity, Warning, TEXT("  %s: no UStaticMeshComponent found - will not contribute gravity."), *Actor->GetName());
+			continue;
+		}
+
+		UBodySetup* PlanetBodySetup = PlanetMesh->GetBodySetup();
+		const float PlanetMass = PlanetBodySetup ? PlanetBodySetup->CalculateMass(PlanetMesh) : 0.0f;
+
+		UE_LOG(LogSpaceRaceGravity, Log, TEXT("  %s: StaticMeshComponent=%s Mass=%.1f BodySetup=%s Location=%s"),
+			*Actor->GetName(),
+			*PlanetMesh->GetName(),
+			PlanetMass,
+			PlanetBodySetup ? TEXT("valid") : TEXT("NULL"),
+			*Actor->GetActorLocation().ToString());
+	}
+}
+
+FVector ASpaceshipPawn::ComputeGravityAcceleration() const
+{
+	FVector Total = FVector::ZeroVector;
+	const FVector ShipLocation = GetActorLocation();
+
+	// Safety floor against division by (near) zero / runaway forces at extreme close range.
+	constexpr float MinDistanceSquared = 100.0f * 100.0f;
+
+	for (const TWeakObjectPtr<AActor>& PlanetPtr : GravityPlanets)
+	{
+		AActor* Planet = PlanetPtr.Get();
+		if (!Planet)
+		{
+			continue;
+		}
+
+		UStaticMeshComponent* PlanetMesh = Planet->FindComponentByClass<UStaticMeshComponent>();
+		if (!PlanetMesh)
+		{
+			continue;
+		}
+
+		// GetMass() only works while physics is actually simulating (it reads the live physics
+		// body). Planets are typically static, so read the configured/calculated mass instead -
+		// this honors a Mass override and otherwise computes it from density * volume, without
+		// requiring Simulate Physics to be enabled.
+		UBodySetup* PlanetBodySetup = PlanetMesh->GetBodySetup();
+		const float PlanetMass = PlanetBodySetup ? PlanetBodySetup->CalculateMass(PlanetMesh) : 0.0f;
+		if (PlanetMass <= 0.0f)
+		{
+			continue;
+		}
+
+		const FVector ToPlanet = Planet->GetActorLocation() - ShipLocation;
+		const float DistanceSquared = FMath::Max(ToPlanet.SizeSquared(), MinDistanceSquared);
+		const FVector DirectionToPlanet = ToPlanet.GetSafeNormal();
+
+		Total += DirectionToPlanet * (GravityConstant * PlanetMass / DistanceSquared);
+	}
+
+	// Treat negligible combined gravity (from all planets together) as exactly none, rather than
+	// showing/applying a near-zero residual.
+	if (Total.Size() < 1.0f)
+	{
+		Total = FVector::ZeroVector;
+	}
+
+	return Total;
 }
 
 void ASpaceshipPawn::AddSpaceshipMappingContext()

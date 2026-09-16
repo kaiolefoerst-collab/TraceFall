@@ -17,6 +17,23 @@ class UInputMappingContext;
 class USoundBase;
 class UCockpitDisplayWidget;
 
+// Governs how much automatic translation assistance is applied on top of raw thrust + gravity.
+// Further modes (e.g. velocity-hold, docking assist, ...) are meant to be added here later
+// without changing this enum's basic shape.
+UENUM(BlueprintType)
+enum class EFlightAssistantMode : uint8
+{
+	// Fully manual, physically direct translation: no damping, no speed clamping, no automatic
+	// re-alignment of the existing velocity vector to the ship's orientation.
+	None,
+
+	// Same underlying physics as None (no damping, no clamping, no directly zeroing/setting any
+	// velocity component), but additionally uses the existing lateral/vertical thrusters to
+	// actively counter-accelerate RightVelocity and UpVelocity toward zero, keeping the velocity
+	// vector aligned with the ship's local Forward axis. ForwardVelocity is left untouched.
+	PureForward
+};
+
 UCLASS()
 class SPACERACE_01_API ASpaceshipPawn : public APawn
 {
@@ -67,6 +84,15 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Collision")
 	float TranslationBounceFactor = 0.05f;
+
+	// None = fully manual translation (no damping/clamping). See EFlightAssistantMode.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Assistant")
+	EFlightAssistantMode FlightAssistantMode = EFlightAssistantMode::None;
+
+	// Gameplay gravitational constant for a = GravityConstant * PlanetMass / DistanceSquared.
+	// Tune experimentally to get the desired gravity strength.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Gravity")
+	float GravityConstant = 4000000000.0f;
 
 	// Maximum amount of fuel the tank can hold.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Fuel")
@@ -165,11 +191,25 @@ private:
 	void PlayCollisionSound();
 	void UpdateCockpitDisplay();
 	void ConsumeFuel(float ForwardForce, float VerticalForce, float LateralForce, float DeltaTime);
+	void FindGravityPlanets();
+	FVector ComputeGravityAcceleration() const;
+	AActor* FindNearestGravityPlanet() const;
 
 	float ThrustInput = 0.0f;
 	float VerticalThrustInput = 0.0f;
 	float LateralThrustInput = 0.0f;
 	FVector Velocity = FVector::ZeroVector;
+
+	// Actors tagged "Planet", found once at BeginPlay - not re-searched every Tick.
+	TArray<TWeakObjectPtr<AActor>> GravityPlanets;
+
+	// Velocity accumulated purely from planetary gravity. Kept separate from Velocity above so
+	// VelocityDamping/ManeuverDamping (which only ever apply to the thrust-controlled Velocity)
+	// never bleed off gravity-induced motion.
+	FVector GravityVelocity = FVector::ZeroVector;
+
+	// Last computed total gravitational acceleration, cached for the cockpit display.
+	FVector TotalGravityAcceleration = FVector::ZeroVector;
 	FVector2D SteeringInput = FVector2D::ZeroVector;
 	float RollInput = 0.0f;
 	FVector AngularVelocity = FVector::ZeroVector;
