@@ -10,6 +10,7 @@
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/AudioComponent.h"
+#include "NiagaraComponent.h"
 #include "InputActionValue.h"
 #include "SpaceshipPawn.generated.h"
 
@@ -85,9 +86,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Collision")
 	float TranslationBounceFactor = 0.05f;
 
-	// None = fully manual translation (no damping/clamping). See EFlightAssistantMode.
+	// Default is PureForward. See EFlightAssistantMode.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flight|Assistant")
-	EFlightAssistantMode FlightAssistantMode = EFlightAssistantMode::None;
+	EFlightAssistantMode FlightAssistantMode = EFlightAssistantMode::PureForward;
 
 	// Gameplay gravitational constant for a = GravityConstant * PlanetMass / DistanceSquared.
 	// Tune experimentally to get the desired gravity strength.
@@ -163,6 +164,20 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Cockpit Display")
 	TSubclassOf<UCockpitDisplayWidget> CockpitDisplayWidgetClass;
 
+	// Purely visual "flying through a particle field" effect. The actual Niagara System asset
+	// (NS_SpaceSpeedParticles) is assigned manually in BP_SpaceshipPawn, not loaded from C++.
+	// Must be EditDefaultsOnly (not just VisibleAnywhere): a component pointer that isn't at
+	// least EditDefaultsOnly is not registered as overridable in the Blueprint's inherited
+	// component table, so an Asset assigned to it from the Blueprint editor appears to work in
+	// the current session but is silently discarded on the next editor restart.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Effects")
+	UNiagaraComponent* SpaceSpeedNiagaraComponent;
+
+	// World-space speed (Velocity + GravityVelocity, magnitude) above which the space-speed
+	// particle effect turns on; at or below it, the effect is off.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Effects")
+	float SpaceSpeedEffectMinSpeed = 100.0f;
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
@@ -194,6 +209,9 @@ private:
 	void FindGravityPlanets();
 	FVector ComputeGravityAcceleration() const;
 	AActor* FindNearestGravityPlanet() const;
+	void UpdateSpaceSpeedEffect(const FVector& WorldVelocity);
+
+	bool bSpaceSpeedEffectActive = false;
 
 	float ThrustInput = 0.0f;
 	float VerticalThrustInput = 0.0f;

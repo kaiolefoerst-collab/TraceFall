@@ -80,6 +80,14 @@ ASpaceshipPawn::ASpaceshipPawn()
 		CollisionSound = CollisionSoundFinder.Object;
 	}
 
+	// Visual-only "flying through a particle field" effect. No asset loaded here - the concrete
+	// Niagara System (NS_SpaceSpeedParticles) is assigned manually in BP_SpaceshipPawn.
+	// bAutoActivate is off: UpdateSpaceSpeedEffect() switches it on only once the ship is
+	// actually above SpaceSpeedEffectMinSpeed, so it starts deactivated.
+	SpaceSpeedNiagaraComponent = CreateDefaultSubobject<UNiagaraComponent>(TEXT("SpaceSpeedNiagaraComponent"));
+	SpaceSpeedNiagaraComponent->SetupAttachment(SceneRoot);
+	SpaceSpeedNiagaraComponent->bAutoActivate = false;
+
  	// Set this pawn to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
 
@@ -261,6 +269,10 @@ void ASpaceshipPawn::Tick(float DeltaTime)
 	{
 		LastSafeTransform = GetActorTransform();
 	}
+
+	// Visual-only: reads the same World-Velocity already used for movement above, does not
+	// affect flight physics in any way.
+	UpdateSpaceSpeedEffect(Velocity + GravityVelocity);
 
 	const FVector AngularAcceleration(
 		RollInput * RollTorque,
@@ -544,6 +556,41 @@ AActor* ASpaceshipPawn::FindNearestGravityPlanet() const
 	}
 
 	return NearestPlanet;
+}
+
+void ASpaceshipPawn::UpdateSpaceSpeedEffect(const FVector& WorldVelocity)
+{
+	if (!SpaceSpeedNiagaraComponent)
+	{
+		return;
+	}
+
+	const bool bShouldBeActive = WorldVelocity.Size() > SpaceSpeedEffectMinSpeed;
+
+	// Only call Activate()/Deactivate() on an actual state change, never every Tick.
+	if (bShouldBeActive && !bSpaceSpeedEffectActive)
+	{
+		SpaceSpeedNiagaraComponent->Activate();
+	}
+	else if (!bShouldBeActive && bSpaceSpeedEffectActive)
+	{
+		SpaceSpeedNiagaraComponent->Deactivate();
+	}
+	bSpaceSpeedEffectActive = bShouldBeActive;
+
+	if (!bSpaceSpeedEffectActive)
+	{
+		return;
+	}
+
+	// The emitter now runs in Local Space (Local Space = ON) and simply moves/rotates with the
+	// ship as a normal attached component - no manual world position/rotation overrides needed.
+	// Niagara's Add Velocity module and Shape Location module both operate in the component's
+	// local space, so WorldVelocity has to be converted into that local space here. No sign flip
+	// is applied - the Niagara System itself applies the direction reversal via its own
+	// "Velocity Speed Scale = -1.0" setting on the Add Velocity module.
+	const FVector LocalVelocity = SpaceSpeedNiagaraComponent->GetComponentTransform().InverseTransformVectorNoScale(WorldVelocity);
+	SpaceSpeedNiagaraComponent->SetVectorParameter(FName(TEXT("User.ShipVelocity")), LocalVelocity);
 }
 
 void ASpaceshipPawn::FindGravityPlanets()
